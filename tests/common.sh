@@ -58,7 +58,7 @@ function build_sketches()
         local sketchdirname=$(basename $sketchdir)
         local sketchname=$(basename $sketch)
         if [[ "${sketchdirname}.ino" != "$sketchname" ]]; then
-            echo "Skipping $sketch, beacause it is not the main sketch file";
+            echo "Skipping $sketch, because it is not the main sketch file";
             continue
         fi;
         if [[ -f "$sketchdir/.test.skip" ]]; then
@@ -93,7 +93,7 @@ function install_libraries()
 function install_ide()
 {
     local ide_path=$1
-    wget -q -O arduino.tar.xz https://www.arduino.cc/download.php?f=/arduino-nightly-linux64.tar.xz
+    wget -q -O arduino.tar.xz https://downloads.arduino.cc/arduino-nightly-linux64.tar.xz
     tar xf arduino.tar.xz
     mv arduino-nightly $ide_path
     export PATH="$ide_path:$PATH"

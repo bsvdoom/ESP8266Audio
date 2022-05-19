@@ -69,6 +69,11 @@ bool AudioGeneratorMOD::stop()
     free(FatBuffer.channels[i]);
     FatBuffer.channels[i] = NULL;
   }
+
+  if(running || ((file != NULL) && (file->isOpen() == true))) {
+	output->flush();  //flush I2S output buffer, if the player was actually running before.
+  }
+
   if (file) file->close();
   running = false;
   output->stop();
@@ -124,7 +129,7 @@ bool AudioGeneratorMOD::begin(AudioFileSource *source, AudioOutput *out)
   UpdateAmiga();
 
   for (int i = 0; i < CHANNELS; i++) {
-    FatBuffer.channels[i] = reinterpret_cast<uint8_t*>(malloc(fatBufferSize));
+    FatBuffer.channels[i] = reinterpret_cast<uint8_t*>(calloc(fatBufferSize, 1));
     if (!FatBuffer.channels[i]) {
       stop();
       return false;
@@ -232,6 +237,11 @@ bool AudioGeneratorMOD::LoadHeader()
     Mod.numberOfChannels = (temp[0] - '0') * 10 + temp[1] - '0';
   else
     Mod.numberOfChannels = 4;
+  
+  if (Mod.numberOfChannels > CHANNELS) {
+    audioLogger->printf("\nAudioGeneratorMOD::LoadHeader abort - too many channels (configured: %d, needed: %d)\n", CHANNELS, Mod.numberOfChannels);
+    return(false);
+  }
 
   return true;
 }
@@ -417,7 +427,7 @@ bool AudioGeneratorMOD::ProcessRow()
 
     if (sampleNumber) {
       Player.lastSampleNumber[channel] = sampleNumber - 1;
-      if (!(effectParameter == 0xE && effectParameterX == NOTEDELAY))
+      if (!(effectNumber == 0xE && effectParameterX == NOTEDELAY))
         Player.volume[channel] = Mod.samples[Player.lastSampleNumber[channel]].volume;
     }
 
@@ -565,7 +575,7 @@ bool AudioGeneratorMOD::ProcessRow()
       Mixer.channelFrequency[channel] = Player.amiga / Player.lastAmigaPeriod[channel];
 
     if (note != NONOTE)
-      Mixer.channelSampleOffset[channel] = sampleOffset << DIVIDER;
+      Mixer.channelSampleOffset[channel] = sampleOffset << FIXED_DIVIDER;
 
     if (sampleNumber)
       Mixer.channelSampleNumber[channel] = Player.lastSampleNumber[channel];
@@ -735,13 +745,14 @@ bool AudioGeneratorMOD::RunPlayer()
 
 void AudioGeneratorMOD::GetSample(int16_t sample[2])
 {
-  int16_t sumL;
-  int16_t sumR;
+  int32_t sumL;
+  int32_t sumR;
   uint8_t channel;
   uint32_t samplePointer;
   int8_t current;
   int8_t next;
   int16_t out;
+  int32_t out32;
 
   if (!running) return;
 
@@ -757,12 +768,12 @@ void AudioGeneratorMOD::GetSample(int16_t sample[2])
     if (!Mixer.channelVolume[channel]) continue;
 
     samplePointer = Mixer.sampleBegin[Mixer.channelSampleNumber[channel]] +
-                    (Mixer.channelSampleOffset[channel] >> DIVIDER);
+                    (Mixer.channelSampleOffset[channel] >> FIXED_DIVIDER);
 
     if (Mixer.sampleLoopLength[Mixer.channelSampleNumber[channel]]) {
 
       if (samplePointer >= Mixer.sampleLoopEnd[Mixer.channelSampleNumber[channel]]) {
-        Mixer.channelSampleOffset[channel] -= Mixer.sampleLoopLength[Mixer.channelSampleNumber[channel]] << DIVIDER;
+        Mixer.channelSampleOffset[channel] -= Mixer.sampleLoopLength[Mixer.channelSampleNumber[channel]] << FIXED_DIVIDER;
         samplePointer -= Mixer.sampleLoopLength[Mixer.channelSampleNumber[channel]];
       }
 
@@ -779,7 +790,7 @@ void AudioGeneratorMOD::GetSample(int16_t sample[2])
         samplePointer >= FatBuffer.samplePointer[channel] + fatBufferSize - 1 ||
         Mixer.channelSampleNumber[channel] != FatBuffer.channelSampleNumber[channel]) {
 
-      uint16_t toRead = Mixer.sampleEnd[Mixer.channelSampleNumber[channel]] - samplePointer + 1;
+      uint32_t toRead = Mixer.sampleEnd[Mixer.channelSampleNumber[channel]] - samplePointer + 1;
       if (toRead > fatBufferSize) toRead  = fatBufferSize;
 
       if (!file->seek(samplePointer, SEEK_SET)) {
@@ -797,30 +808,55 @@ void AudioGeneratorMOD::GetSample(int16_t sample[2])
 
     current = FatBuffer.channels[channel][(samplePointer - FatBuffer.samplePointer[channel]) /*& (FATBUFFERSIZE - 1)*/];
     next = FatBuffer.channels[channel][(samplePointer + 1 - FatBuffer.samplePointer[channel]) /*& (FATBUFFERSIZE - 1)*/];
+	
+	// preserve a few more bits from sample interpolation, by upscaling input values.
+	// This does (slightly) reduce quantization noise in higher frequencies, typically above 8kHz.
+	// Actually we could could even gain more bits, I was just not sure if more bits would cause overflows in other conputations.
+    int16_t current16 = (int16_t) current << 2;
+    int16_t next16    = (int16_t) next << 2;	  
+	  
+    out = current16;
 
-    out = current;
+    // Integer linear interpolation - only works correctly in 16bit
+    out += (next16 - current16) * (Mixer.channelSampleOffset[channel] & ((1 << FIXED_DIVIDER) - 1)) >> FIXED_DIVIDER;
 
-    // Integer linear interpolation
-    out += (next - current) * (Mixer.channelSampleOffset[channel] & ((1 << DIVIDER) - 1)) >> DIVIDER;
-
-    // Upscale to BITDEPTH
-    out <<= BITDEPTH - 8;
+    // Upscale to BITDEPTH, considering the we already gained two bits in the previous step
+    out32 = (int32_t)out << (BITDEPTH - 10);
 
     // Channel volume
-    out = out * Mixer.channelVolume[channel] >> 6;
+    out32 = out32 * Mixer.channelVolume[channel] >> 6;
 
     // Channel panning
-    sumL += out * min(128 - Mixer.channelPanning[channel], 64) >> 6;
-    sumR += out * min(Mixer.channelPanning[channel], 64) >> 6;
+    sumL += out32 * min(128 - Mixer.channelPanning[channel], 64) >> 6;
+    sumR += out32 * min(Mixer.channelPanning[channel], 64) >> 6;
   }
 
-  // Downscale to BITDEPTH
-  sumL /= Mod.numberOfChannels;
-  sumR /= Mod.numberOfChannels;
+  // Downscale to BITDEPTH - a bit faster because the compiler can replaced division by constants with proper "right shift" + correct handling of sign bit
+  if (Mod.numberOfChannels <= 4) {
+      // up to 4 channels
+      sumL /= 4;
+      sumR /= 4;
+  } else {
+    if (Mod.numberOfChannels <= 6) {
+      // 5 or 6 channels - pre-multiply be 1.5, then divide by 8 -> same as division by 6
+      sumL = (sumL + (sumL/2)) / 8;
+      sumR = (sumR + (sumR/2)) / 8;      
+    } else {
+      // 7,8, or more channels
+      sumL /= 8;
+      sumR /= 8;
+    }
+  }
 
-  // Fill the sound buffer with unsigned values
-  sample[AudioOutput::LEFTCHANNEL] = sumL + (1 << (BITDEPTH - 1));
-  sample[AudioOutput::RIGHTCHANNEL] = sumR + (1 << (BITDEPTH - 1));
+  // clip samples to 16bit (with saturation in case of overflow)
+  if(sumL <= INT16_MIN) sumL = INT16_MIN;
+    else if (sumL >= INT16_MAX) sumL = INT16_MAX;
+  if(sumR <= INT16_MIN) sumR = INT16_MIN;
+    else if (sumR >= INT16_MAX) sumR = INT16_MAX;
+  
+  // Fill the sound buffer with signed values
+  sample[AudioOutput::LEFTCHANNEL] = sumL;
+  sample[AudioOutput::RIGHTCHANNEL] = sumR;
 }
 
 bool AudioGeneratorMOD::LoadMOD()

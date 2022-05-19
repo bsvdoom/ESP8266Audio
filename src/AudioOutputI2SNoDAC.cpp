@@ -21,13 +21,32 @@
 #include <Arduino.h>
 #ifdef ESP32
   #include "driver/i2s.h"
-#elif defined(ESP8266)
-  #include <i2s.h>
-#elif defined(ARDUINO_ARCH_RP2040)
+#elif defined(ARDUINO_ARCH_RP2040) || ARDUINO_ESP8266_MAJOR >= 3
   #include <I2S.h>
+#elif ARDUINO_ESP8266_MAJOR < 3
+  #include <i2s.h>
 #endif
 #include "AudioOutputI2SNoDAC.h"
 
+
+#if defined(ARDUINO_ARCH_RP2040)
+//
+// Create an alternate constructor for the RP2040.  The AudioOutputI2S has an alternate
+// constructor for the RP2040, so the code was passing port to the sampleRate and false to sck.
+//
+//    AudioOutputI2S(long sampleRate = 44100, pin_size_t sck = 26, pin_size_t data = 28);
+//
+// So this new constructor adds the ability to pass both port and sck to the underlying class, but
+// uses the same defaults in the AudioOutputI2S constructor.
+//
+AudioOutputI2SNoDAC::AudioOutputI2SNoDAC(int port, int sck) : AudioOutputI2S(44100, sck, port)
+{
+  SetOversampling(32);
+  lastSamp = 0;
+  cumErr = 0;
+}
+
+#else
 
 AudioOutputI2SNoDAC::AudioOutputI2SNoDAC(int port) : AudioOutputI2S(port, false)
 {
@@ -38,7 +57,10 @@ AudioOutputI2SNoDAC::AudioOutputI2SNoDAC(int port) : AudioOutputI2S(port, false)
   WRITE_PERI_REG(PERIPHS_IO_MUX_MTDO_U, orig_bck);
   WRITE_PERI_REG(PERIPHS_IO_MUX_GPIO2_U, orig_ws);
 #endif
+
 }
+#endif
+
 
 AudioOutputI2SNoDAC::~AudioOutputI2SNoDAC()
 {
@@ -97,8 +119,11 @@ bool AudioOutputI2SNoDAC::ConsumeSample(int16_t sample[2])
 
   // Either send complete pulse stream or nothing
 #ifdef ESP32
-  if (!i2s_write_bytes((i2s_port_t)portNo, (const char *)dsBuff, sizeof(uint32_t) * (oversample/32), 0))
+  size_t i2s_bytes_written;
+  i2s_write((i2s_port_t)portNo, (const char *)dsBuff, sizeof(uint32_t) * (oversample/32), &i2s_bytes_written, 0);
+  if (!i2s_bytes_written){
     return false;
+  }
 #elif defined(ESP8266)
   if (!i2s_write_sample_nb(dsBuff[0])) return false; // No room at the inn
   // At this point we've sent in first of possibly 8 32-bits, need to send
@@ -106,9 +131,8 @@ bool AudioOutputI2SNoDAC::ConsumeSample(int16_t sample[2])
   for (int i = 32; i < oversample; i+=32)
     i2s_write_sample( dsBuff[i / 32]);
 #elif defined(ARDUINO_ARCH_RP2040)
-  int16_t *p = (int16_t *) dsBuff;
-  for (int i = 0; i < oversample / 16; i++) {
-    I2S.write(*(p++));
+  for (int i = 0; i < oversample / 32; i++) {
+    i2s.write((int32_t)dsBuff[i], true);
   }
 #endif
   return true;

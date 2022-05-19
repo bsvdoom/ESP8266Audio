@@ -8,7 +8,7 @@
 // Espressif Audio Development Framework at:
 // https://docs.espressif.com/projects/esp-adf/en/latest/design-guide/audio-samples.html
 //
-// On ESP8266 you might need to reencode FLAC files with max '-2' compression level 
+// On ESP8266 you might need to re-encode FLAC files with max '-2' compression level 
 // (i.e. 1152 maximum block size) or you will run out of memory. FLAC files will be 
 // slightly bigger but you don't loose audio quality with reencoding (lossles codec).
 
@@ -61,7 +61,7 @@ void loop() {
         }
       } 
     } else {
-      Serial.println(F("Playback form SD card done\n"));
+      Serial.println(F("Playback from SD card done\n"));
       delay(1000);
     }       
   }

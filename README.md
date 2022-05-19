@@ -31,7 +31,9 @@ JohannesMTC has built a similar project especially for model trains: https://git
 
 A neat MQTT-driven ESP8266 light-and-sound device (alarm? toy? who can say!) was built by @CosmicMac, available at https://github.com/CosmicMac/ESParkle
 
-A very interesting "linear clock" with a stepper motor, NTP time keeping, and configurable recorded chimes with schematics, 3D printer plans, and source code, is now available http://home.kpn.nl/bderogee1980/projects/linear_clock/linear_clock.html
+A very interesting "linear clock" with a stepper motor, NTP time keeping, and configurable recorded chimes with schematics, 3D printer plans, and source code, is now available https://janderogee.com/projects/linear_clock/linear_clock.htm
+
+Source and instructions for a gorgeous wooden MP3-playing clock, FM radio and a walkie-talkie using the ESP8266 and AVR microcontrollers is available https://github.com/zduka/mp3-player
 
 ## Prerequisites
 First, make sure you are running the 2.6.3/later or GIT head version of the Arduino libraries for ESP8266, or the latest ESP32 SDK from Espressif.
@@ -100,7 +102,7 @@ AudioFileSourcePROGMEM:  Reads a file from a PROGMEM array.  Under UNIX you can 
 AudioFileSourceHTTPStream:  Simple implementation of a streaming HTTP reader for ShoutCast-type MP3 streaming.  Not yet resilient, and at 44.1khz 128bit stutters due to CPU limitations, but it works more or less.
 
 ## AudioFileSourceBuffer - Double buffering, useful for HTTP streams
-AudioFileSourceBuffer is an input source that simpy adds an additional RAM buffer of the output of any other AudioFileSource.  This is particularly useful for web streaming where you need to have 1-2 packets in memory to ensure hiccup-free playback.
+AudioFileSourceBuffer is an input source that simply adds an additional RAM buffer of the output of any other AudioFileSource.  This is particularly useful for web streaming where you need to have 1-2 packets in memory to ensure hiccup-free playback.
 
 Create your standard input file source, create the buffer with the original source as its input, and pass this buffer object to the generator.
 ```cpp
@@ -158,7 +160,15 @@ AudioOutputSPIFFSWAV:  Writes a binary WAV format with headers to a SPIFFS files
 AudioOutputNull:  Just dumps samples to /dev/null.  Used for speed testing as it doesn't artificially limit the AudioGenerator output speed since there are no buffers to fill/drain.
 
 ## I2S DACs
-I've used both the Adafruit [I2S +3W amp DAC](https://www.adafruit.com/product/3006) and a generic PCM5102 based DAC with success.  The biggest problems I've seen from users involve pinouts from the ESP8266 for GPIO and hooking up all necessary pins on the DAC board.
+I've used both the Adafruit [I2S +3W amp DAC](https://www.adafruit.com/product/3006) and a generic PCM5102 based DAC with success.  The biggest problems I've seen from users involve pinouts from the ESP8266 for GPIO and hooking up all necessary pins on the DAC board. The essential pins are:
+
+I2S pin | Common label* | ESP8266 pin 
+--------|---------------|-------------
+LRC     | D4            | GPIO2
+BCLK    | D8            | GPIO15
+DIN     | RX            | GPIO3
+
+\* The "common label" column applies to common NodeMCU and D1 Mini development boards. Unfortunately some manufacturers use different mappings so the labels listed here might not apply to your particular model.
 
 ### Adafruit I2S DAC
 This is quite simple and only needs the GND, VIN, LRC, BCLK< and DIN pins to be wired.  Be sure to use +5V on the VIN to get the loudest sound.  See the [Adafruit example page](https://learn.adafruit.com/adafruit-max98357-i2s-class-d-mono-amp) for more info.
@@ -171,7 +181,7 @@ I've used several versions of PCM5102 DAC boards purchased from eBay.  They've a
 
 
 ### Others
-There are many other variants out there, and they should all work reasonably well with this code and the ESP8266.  Please be certain you've read the datasheet and are applying proper input voltages, and be sure to tie off any unused inputs to GND or VCC as appropriate.  LEaving an input pin floating on any integrated circuit can cause unstable operation as it may pick up noise from the environment (very low input capacitance) and cause havoc with internal IC settings.
+There are many other variants out there, and they should all work reasonably well with this code and the ESP8266.  Please be certain you've read the datasheet and are applying proper input voltages, and be sure to tie off any unused inputs to GND or VCC as appropriate.  Leaving an input pin floating on any integrated circuit can cause unstable operation as it may pick up noise from the environment (very low input capacitance) and cause havoc with internal IC settings.
 
 ## Software I2S Delta-Sigma DAC (i.e. playing music with a single transistor and speaker)
 For the best fidelity, and stereo to boot, spend the money on a real I2S DAC.  Adafruit makes a great mono one with amplifier, and you can find stereo unamplified ones on eBay or elsewhere quite cheaply.  However, thanks to the software delta-sigma DAC with 32x oversampling (up to 128x if the audio rate is low enough) you can still have pretty good sound!
@@ -206,7 +216,7 @@ USB-5V             -- Speaker + Terminal
 
 *NOTE*:  A prior version of this schematic had a direct connection from the ESP8266 to the base of the transistor.  While this does provide the maximum amplitude, it also can draw more current from the 8266 than is safe, and can also cause the transistor to overheat.
 
-As of the latest ESP8266Audio release, with the software delta-sigma DAC the LRCLK and BCLK pins *can* be used by an application.  Simply use normal `pinMode` and `dicitalWrite` or `digitalRead` as desired.
+As of the latest ESP8266Audio release, with the software delta-sigma DAC the LRCLK and BCLK pins *can* be used by an application.  Simply use normal `pinMode` and `digitalWrite` or `digitalRead` as desired.
 
 ### High pitched buzzing with the 1-T circuit
 The 1-T amp can _NOT_ drive any sort of amplified speaker.  If there is a power or USB input to the speaker, or it has lights or Bluetooth or a battery, it can _NOT_ be used with this circuit.
@@ -239,7 +249,7 @@ ESP Pin -------|____|--------+
                              |
 Ground  ---------------------+
 ```
-For ESP8266 with red LED (~1.9Vf drop) you need minimum 150Ohm resistor (12mA max per pin), and output pin is fixed (GPIO3/RX0).On ESP32 it is confgurable with `AudioOutputSPDIF(gpio_num)`.
+For ESP8266 with red LED (~1.9Vf drop) you need minimum 150Ohm resistor (12mA max per pin), and output pin is fixed (GPIO3/RX0).On ESP32 it is configurable with `AudioOutputSPDIF(gpio_num)`.
 
 ## Using external SPI RAM to increase buffer
 A class allows you to use a 23lc1024 SPI RAM from Microchip as input buffer. This chip connects to ESP8266 HSPI port and provides a large buffer to help avoid hiccus in playback of web streams.

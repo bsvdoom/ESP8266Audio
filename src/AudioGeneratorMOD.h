@@ -53,19 +53,25 @@ class AudioGeneratorMOD : public AudioGenerator
 
   protected:
     int mixerTick;
-    enum {BITDEPTH = 15};
+    enum {BITDEPTH = 16};
     int sampleRate; 
     int fatBufferSize; //(6*1024) // File system buffers per-CHANNEL (i.e. total mem required is 4 * FATBUFFERSIZE)
-    enum {DIVIDER = 10};             // Fixed-point mantissa used for integer arithmetic
+    enum {FIXED_DIVIDER = 10};             // Fixed-point mantissa used for integer arithmetic
     int stereoSeparation; //STEREOSEPARATION = 32;    // 0 (max) to 64 (mono)
     bool usePAL;
     
     // Hz = 7093789 / (amigaPeriod * 2) for PAL
     // Hz = 7159091 / (amigaPeriod * 2) for NTSC
     int AMIGA;
-    void UpdateAmiga() { AMIGA = ((usePAL?7159091:7093789) / 2 / sampleRate << DIVIDER); }
-    
+    void UpdateAmiga() { AMIGA = ((usePAL?7159091:7093789) / 2 / sampleRate << FIXED_DIVIDER); }
+ 
+#ifdef ESP8266 // Not sure if C3/C2 have RAM constraints, maybe add them here?
+    // support max 4 channels
     enum {ROWS = 64, SAMPLES = 31, CHANNELS = 4, NONOTE = 0xFFFF, NONOTE8 = 0xff };
+#else
+    // support max 8 channels
+    enum {ROWS = 64, SAMPLES = 31, CHANNELS = 8, NONOTE = 0xFFFF, NONOTE8 = 0xff };
+#endif
 
     typedef struct Sample {
       uint16_t length;

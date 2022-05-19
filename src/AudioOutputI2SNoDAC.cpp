@@ -48,7 +48,7 @@ AudioOutputI2SNoDAC::AudioOutputI2SNoDAC(int port, int sck) : AudioOutputI2S(441
 
 #else
 
-AudioOutputI2SNoDAC::AudioOutputI2SNoDAC(int port) : AudioOutputI2S(port, false)
+AudioOutputI2SNoDAC::AudioOutputI2SNoDAC(int port, int dma_buf_count) : AudioOutputI2S(port, AudioOutputI2S::EXTERNAL_I2S, dma_buf_count)
 {
   SetOversampling(32);
   lastSamp = 0;
@@ -79,7 +79,7 @@ void AudioOutputI2SNoDAC::DeltaSigma(int16_t sample[2], uint32_t dsBuff[8])
 {
   // Not shift 8 because addition takes care of one mult x 2
   int32_t sum = (((int32_t)sample[0]) + ((int32_t)sample[1])) >> 1;
-  fixed24p8_t newSamp = ( (int32_t)Amplify(sum) ) << 8;
+  fixed24p8_t newSamp = ( (int32_t)sum ) << 8;
 
   int oversample32 = oversample / 32;
   // How much the comparison signal changes each oversample step
@@ -106,13 +106,9 @@ void AudioOutputI2SNoDAC::DeltaSigma(int16_t sample[2], uint32_t dsBuff[8])
   }
 }
 
-bool AudioOutputI2SNoDAC::ConsumeSample(int16_t sample[2])
-{
-  int16_t ms[2];
-  ms[0] = sample[0];
-  ms[1] = sample[1];
-  MakeSampleStereo16( ms );
 
+bool AudioOutputI2SNoDAC::writeSample(int16_t ms[2])
+{
   // Make delta-sigma filled buffer
   uint32_t dsBuff[8];
   DeltaSigma(ms, dsBuff);
@@ -137,3 +133,6 @@ bool AudioOutputI2SNoDAC::ConsumeSample(int16_t sample[2])
 #endif
   return true;
 }
+
+
+
